@@ -88,7 +88,7 @@ public class IterableComparator implements Comparator<Iterable<?>> {
 		Iterator<?> i2 = iterable2.iterator();
 
 		while(i1.hasNext() && i2.hasNext()) {
-			int itemComp = TupleUtil.compareItems(i1.next(), i2.next());
+			int itemComp = TupleCodec.compareItems(i1.next(), i2.next());
 			if(itemComp != 0) {
 				return itemComp;
 			}

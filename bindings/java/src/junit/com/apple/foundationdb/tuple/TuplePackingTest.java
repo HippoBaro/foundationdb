@@ -19,12 +19,9 @@
  */
 package com.apple.foundationdb.tuple;
 
-import java.lang.reflect.Field;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.security.AccessController;
-import java.security.PrivilegedExceptionAction;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -506,37 +503,12 @@ class TuplePackingTest {
 
 		// Verify that it won't be packed
 		for (String s : strings) {
-			Tuple t = Tuple.from(s);
-			try {
-				t.getPackedSize();
-				Assertions.fail("able to get packed size of malformed string " + ByteArrayUtil.printable(s.getBytes()));
-			} catch (IllegalArgumentException expected) {
-			}
-			try {
-				t.pack();
-				Assertions.fail("able to pack malformed string " + ByteArrayUtil.printable(s.getBytes()));
-			} catch (IllegalArgumentException expected) {
-			}
-			try {
-				// Modify the memoized packed size to match what it would be if naively packed.
-				// This checks to make sure the validation logic invoked right before packing
-				// works,
-				// but getting that code path to execute means modifying the tuple's internal
-				// state, hence
-				// the reflection.
-				Field f = Tuple.class.getDeclaredField("memoizedPackedSize");
-				AccessController.doPrivileged((PrivilegedExceptionAction<Void>)() -> {
-					if (!f.isAccessible()) {
-						f.setAccessible(true);
-					}
-					f.setInt(t, 2 + s.getBytes("UTF-8").length);
-					return null;
-				});
-				t.pack();
-				Assertions.fail("able to pack malformed string");
-			} catch (IllegalArgumentException expected) {
-				// eat
-			}
+			Assertions.assertThrows(IllegalArgumentException.class,
+					() -> Tuple.from(s),
+					"able to construct tuple with malformed string " + ByteArrayUtil.printable(s.getBytes()));
+			Assertions.assertThrows(IllegalArgumentException.class,
+					() -> new Tuple().add(s),
+					"able to add malformed string " + ByteArrayUtil.printable(s.getBytes()));
 		}
 	}
 }

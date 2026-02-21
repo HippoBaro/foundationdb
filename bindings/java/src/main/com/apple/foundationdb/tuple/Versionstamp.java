@@ -110,6 +110,26 @@ public class Versionstamp implements Comparable<Versionstamp> {
 	}
 
 	/**
+	 * Checks whether the versionstamp bytes at the given offset in the data array
+	 * represent an incomplete versionstamp (i.e., the transaction version bytes match
+	 * the unset marker). This is a zero-copy check that avoids allocating a byte array
+	 * or Versionstamp object.
+	 *
+	 * @param data the byte array containing versionstamp bytes
+	 * @param offset the offset into data where the versionstamp content begins
+	 *               (after the type code byte)
+	 * @return true if the versionstamp at the given offset is incomplete
+	 */
+	static boolean isIncompleteAt(byte[] data, int offset) {
+		for(int i = 0; i < UNSET_TRANSACTION_VERSION.length; i++) {
+			if(data[offset + i] != UNSET_TRANSACTION_VERSION[i]) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/**
 	 * Creates a {@code Versionstamp} instance based on the given byte array
 	 *  representation. This follows the same format as that used by
 	 *  the main constructor, but the completeness of the {@code Versionstamp}
