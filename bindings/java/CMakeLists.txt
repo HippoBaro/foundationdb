@@ -1,6 +1,7 @@
 set(RUN_JAVA_TESTS ON CACHE BOOL "Run Java unit tests")
 set(RUN_JUNIT_TESTS OFF CACHE BOOL "Compile and run junit tests")
 set(RUN_JAVA_INTEGRATION_TESTS OFF CACHE BOOL "Compile and run integration tests")
+set(BUILD_JAVA_BENCHMARKS OFF CACHE BOOL "Build JMH benchmarks for Java bindings")
 
 set(JAVA_BINDING_SRCS
   src/main/com/apple/foundationdb/async/AsyncIterable.java
@@ -217,7 +218,7 @@ create_javadoc(fdb
                FILES ${JAVA_BINDING_SRCS} ${GENERATED_JAVA_FILES} ${GENERATED_JAVA_DIR}/ApiVersion.java
                VERSION ${FDB_VERSION}
                )
-add_dependencies(fdb_javadoc fdb_java_options) 
+add_dependencies(fdb_javadoc fdb_java_options)
 
 add_custom_target(CopyJavadoc
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_BINARY_DIR}/javadoc/fdb ${CMAKE_CURRENT_BINARY_DIR}/../../documentation/html/javadoc
@@ -449,9 +450,55 @@ if(NOT OPEN_FOR_IDE)
       COMMAND ${Java_JAVA_EXECUTABLE}
       -classpath "${target_jar}:${integration_jar_path}:${JUNIT_CLASSPATH}"
       -Djava.library.path=${CMAKE_BINARY_DIR}/lib
-      org.junit.platform.console.ConsoleLauncher "--details=summary" "--class-path=${integration_jar_path}" "--scan-classpath" 
+      org.junit.platform.console.ConsoleLauncher "--details=summary" "--class-path=${integration_jar_path}" "--scan-classpath"
           "--disable-banner" "-t SupportsExternalClient" "--config=external_client_library=${CMAKE_BINARY_DIR}/bindings/c/libfdb_c_external.so"
       )
 
+  endif()
+
+  if(BUILD_JAVA_BENCHMARKS)
+    set(JMH_JARS "${CMAKE_BINARY_DIR}/packages")
+    file(DOWNLOAD "https://repo1.maven.org/maven2/org/openjdk/jmh/jmh-core/1.37/jmh-core-1.37.jar"
+      ${JMH_JARS}/jmh-core-1.37.jar
+      EXPECTED_HASH SHA256=dc0eaf2bbf0036a70b60798c785d6e03a9daf06b68b8edb0f1ba9eb3421baeb3)
+    file(DOWNLOAD "https://repo1.maven.org/maven2/org/openjdk/jmh/jmh-generator-annprocess/1.37/jmh-generator-annprocess-1.37.jar"
+      ${JMH_JARS}/jmh-generator-annprocess-1.37.jar
+      EXPECTED_HASH SHA256=6a5604b5b804e0daca1145df1077609321687734a8b49387e49f10557c186c77)
+    file(DOWNLOAD "https://repo1.maven.org/maven2/net/sf/jopt-simple/jopt-simple/5.0.4/jopt-simple-5.0.4.jar"
+      ${JMH_JARS}/jopt-simple-5.0.4.jar
+      EXPECTED_HASH SHA256=df26cc58f235f477db07f753ba5a3ab243ebe5789d9f89ecf68dd62ea9a66c28)
+    file(DOWNLOAD "https://repo1.maven.org/maven2/org/apache/commons/commons-math3/3.6.1/commons-math3-3.6.1.jar"
+      ${JMH_JARS}/commons-math3-3.6.1.jar
+      EXPECTED_HASH SHA256=1e56d7b058d28b65abd256b8458e3885b674c1d588fa43cd7d1cbb9c7ef2b308)
+
+    set(JAVA_BENCHMARK_SRCS
+      src/benchmark/com/apple/foundationdb/tuple/TupleBenchmark.java)
+
+    add_jar(fdb-benchmarks SOURCES ${JAVA_BENCHMARK_SRCS} INCLUDE_JARS fdb-java
+      ${JMH_JARS}/jmh-core-1.37.jar
+      ${JMH_JARS}/jmh-generator-annprocess-1.37.jar
+      ${JMH_JARS}/jopt-simple-5.0.4.jar
+      ${JMH_JARS}/commons-math3-3.6.1.jar)
+    add_dependencies(fdb-benchmarks fdb_java_options)
+    get_property(benchmark_jar_path TARGET fdb-benchmarks PROPERTY JAR_FILE)
+
+    # JMH annotation processor generates META-INF/BenchmarkList in the class output
+    # directory, but CMake's add_jar does not include resource files in the jar.
+    # Add them manually after the jar is created.
+    add_custom_command(TARGET fdb-benchmarks POST_BUILD
+      COMMAND ${Java_JAR_EXECUTABLE} uf ${benchmark_jar_path}
+        META-INF/BenchmarkList META-INF/CompilerHints
+      WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/CMakeFiles/fdb-benchmarks.dir
+      COMMENT "Adding JMH metadata to benchmark jar")
+
+    set(JMH_CLASSPATH "${benchmark_jar_path}:${target_jar}:${JMH_JARS}/jmh-core-1.37.jar:${JMH_JARS}/jmh-generator-annprocess-1.37.jar:${JMH_JARS}/jopt-simple-5.0.4.jar:${JMH_JARS}/commons-math3-3.6.1.jar")
+    add_custom_target(run-tuple-benchmarks
+      COMMAND ${Java_JAVA_EXECUTABLE}
+      -classpath "${JMH_CLASSPATH}"
+      org.openjdk.jmh.Main "com.apple.foundationdb.tuple.TupleBenchmark"
+      -f 1 -wi 2 -i 3 -tu us -prof gc -rf csv
+      DEPENDS fdb-benchmarks fat-jar
+      COMMENT "Running Tuple JMH benchmarks"
+      USES_TERMINAL)
   endif()
 endif()
